@@ -66,94 +66,85 @@ def detect_off_hours(events, include_attempts=False):
     for e in events:
         if e["hour"] is None:
             continue
-        if NIGHT_START <= e["hour"] < NIGHT_END:
-            if not include_attempts and e["status"] != "Accepted":
-                continue
-            alerts.append({"rule": "off_hours", "hour": e["hour"], "raw": e["raw"]})
+        if not (NIGHT_START <= e["hour"] < NIGHT_END):
+            continue
+        if not include_attempts and e["status"] != "Accepted":
+            continue
+        alerts.append({"rule": "off_hours", "ip": e["ip"], "user": e["user"], "raw": e["raw"]})
     return alerts
 
 
 def detect_brute_force(events):
-    fails_by_ip = defaultdict(list)
+    alerts = []
+    by_ip = defaultdict(list)
     for e in events:
         if e["status"] == "Failed" and e["dt"] is not None:
-            fails_by_ip[e["ip"]].append(e["dt"])
+            by_ip[e["ip"]].append(e)
 
-    alerts = []
-    for ip, times in fails_by_ip.items():
-        times.sort()
-        for i in range(len(times) - BF_THRESHOLD + 1):
-            span = (times[i + BF_THRESHOLD - 1] - times[i]).total_seconds()
+    for ip, fails in by_ip.items():
+        fails.sort(key=lambda e: e["dt"])
+        for i in range(len(fails) - BF_THRESHOLD + 1):
+            window = fails[i:i + BF_THRESHOLD]
+            span = (window[-1]["dt"] - window[0]["dt"]).total_seconds()
             if span <= BF_WINDOW:
-                alerts.append({"rule": "brute_force", "ip": ip,
-                               "count": len(times), "span": span})
-                break  # one alert per ip
+                alerts.append({
+                    "rule": "brute_force",
+                    "ip": ip,
+                    "raw": f"{ip} - {len(fails)} failed logins "
+                           f"({BF_THRESHOLD} within {int(span)}s)",
+                })
+                break
     return alerts
 
 
-def format_alert(a):
-    rule = a["rule"]
-    if rule == "brute_force":
-        return f"{a['ip']} - {a['count']} failed logins ({BF_THRESHOLD} within {a['span']:.0f}s)"
-    if rule == "suspicious_ip":
-        return f"{a['ip']} - {a['raw']}"
-    if rule == "off_hours":
-        return f"{a['hour']:02d}h - {a['raw']}"
-    if rule == "keyword":
-        return f"{a['keyword']} - {a['raw']}"
-    return a["raw"]
+RULE_ORDER = ["brute_force", "suspicious_ip", "off_hours", "keyword"]
 
 
-def print_report(alerts):
-    print("=" * 70)
-    print(f"MINI SIEM REPORT - {len(alerts)} alert(s)")
-    print("=" * 70)
+def build_report(alerts):
+    by_rule = defaultdict(list)
+    for a in alerts:
+        by_rule[a["rule"]].append(a)
 
-    counts = Counter(a["rule"] for a in alerts)
-    order = ["brute_force", "suspicious_ip", "off_hours", "keyword"]
-    for rule in order:
-        if counts[rule]:
-            print(f"  {rule:<14} {counts[rule]}")
-    print("-" * 70)
+    total = len(alerts)
+    lines = []
+    lines.append("=" * 70)
+    lines.append(f"MINI SIEM REPORT - {total} alert(s)")
+    lines.append("=" * 70)
+    for rule in RULE_ORDER:
+        lines.append(f"  {rule:<15} {len(by_rule[rule])}")
+    lines.append("-" * 70)
 
-    for rule in order:
-        rule_alerts = [a for a in alerts if a["rule"] == rule]
+    for rule in RULE_ORDER:
+        rule_alerts = by_rule[rule]
         if not rule_alerts:
             continue
-        print(f"\n[{rule}]")
+        lines.append("")
+        lines.append(f"[{rule}]")
         for a in rule_alerts:
-            print(f"  {format_alert(a)}")
+            lines.append(f"  {a['raw']}")
+
+    return "\n".join(lines)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Mini SIEM: parse a Linux auth.log and run detections."
-    )
-    parser.add_argument("logfile", help="Path to the auth.log file")
+    parser = argparse.ArgumentParser(description="Mini SIEM - parse an auth.log and run detection rules.")
+    parser.add_argument("logfile", help="path to the auth.log file")
     parser.add_argument("--night-all", action="store_true",
-                        help="Include failed attempts in off-hours alerts, not just successful logins")
+                         help="flag every off-hours attempt, not just successful logins")
     args = parser.parse_args()
 
-    try:
-        lines = read_log(args.logfile)
-    except FileNotFoundError:
-        print(f"Error: file not found: {args.logfile}", file=sys.stderr)
-        sys.exit(1)
-    except PermissionError:
-        print(f"Error: permission denied: {args.logfile}", file=sys.stderr)
-        sys.exit(1)
-
+    lines = read_log(args.logfile)
     events = parse_events(lines)
     print(f"Parsed {len(events)} login events from {len(lines)} log lines.\n")
 
     alerts = []
-    alerts += detect_keywords(lines)
+    alerts += detect_brute_force(events)
     alerts += detect_suspicious_ips(events)
     alerts += detect_off_hours(events, include_attempts=args.night_all)
-    alerts += detect_brute_force(events)
+    alerts += detect_keywords(lines)
 
-    print_report(alerts)
+    print(build_report(alerts))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
