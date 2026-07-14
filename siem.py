@@ -24,8 +24,15 @@ ASSUMED_YEAR = 2026 # prevent deprecation notice
 
 
 def read_log(path):
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.readlines()
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.readlines()
+    except FileNotFoundError:
+        print(f"Error: log file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError:
+        print(f"Error: cannot read {path} (permission denied)", file=sys.stderr)
+        sys.exit(1)
 
 
 def parse_events(lines):
