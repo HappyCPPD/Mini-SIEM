@@ -89,5 +89,5 @@ The point was not to replace a real SIEM. It was to build the smallest thing tha
 
 - `siem.py` — the tool.
 - `sample_auth.log` — a small sample log to run it against.
-- `openssh_2k_real.log` — a real 2000-line SSH log from a public dataset.
+- `openssh_2k_real.log` — a real 2000-line SSH log from a public dataset(https://github.com/logpai/loghub/tree/master/OpenSSH)
 - `openssh_2k_report.txt` — the full report from running the tool on that log.
