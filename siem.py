@@ -127,7 +127,7 @@ def build_report(alerts):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Mini SIEM - parse an auth.log and run detection rules.")
+    parser = argparse.ArgumentParser(description="Mini SIEM - parses an auth.log and runs detection rules.")
     parser.add_argument("logfile", help="path to the auth.log file")
     parser.add_argument("--night-all", action="store_true",
                          help="flag every off-hours attempt, not just successful logins")
